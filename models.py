@@ -13,8 +13,38 @@ class UsersOrm(Base):
     __tablename__ = 'users'
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(nullable=False)
-    age: Mapped[Optional[int]] = mapped_column(nullable=True)
+    name: Mapped[str]
+    age: Mapped[Optional[int]]
+    gender_id: Mapped[int] = mapped_column(ForeignKey("genders.id", ondelete="SET NULL"), nullable=False)
+
+    gender: Mapped["GendersORM"] = relationship(back_populates="users")
+
+    # родительская запись (1:1)
+    parents: Mapped[Optional["ParentsOrm"]] = relationship(
+        "ParentsOrm",
+        back_populates="user",
+        uselist=False,
+        foreign_keys="[ParentsOrm.user_id]"  # вот это обязательно!
+    )
+
+
+class ParentsOrm(Base):
+    __tablename__ = "parents"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    mother_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    father_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+
+    # основной пользователь, к которому относятся эти родители
+    user: Mapped["UsersOrm"] = relationship(
+        "UsersOrm",
+        back_populates="parents",
+        foreign_keys=[user_id]
+    )
+
+    mother: Mapped[Optional["UsersOrm"]] = relationship("UsersOrm", foreign_keys=[mother_id])
+    father: Mapped[Optional["UsersOrm"]] = relationship("UsersOrm", foreign_keys=[father_id])
+
 
     # # === Мать ===
     # mother_id: Mapped[Optional[int]] = mapped_column(
@@ -55,9 +85,10 @@ class UsersOrm(Base):
     # === Валидация ===
     @validates("mother_id", "father_id")
     def validate_parents(self, key, value):
-        if value is not None and value == self.id:
-            raise ValueError(f"Пользователь не может быть своим собственным {key.replace('_id', '')}.")
+        if value is not None and value == self.user_id:
+            raise ValueError(f"{key} не может быть равен самому себе")
         return value
+
 
 
 class GendersORM(Base):
@@ -65,5 +96,8 @@ class GendersORM(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     gender: Mapped[str] = mapped_column(nullable=False)
+    users: Mapped[list["UsersOrm"]] = relationship(
+        back_populates="gender"
+    )
     # users: Mapped[List['UsersOrm']] = relationship("UsersOrm", back_populates='gender')
 

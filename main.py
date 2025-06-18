@@ -1,8 +1,9 @@
 import asyncio
-from models import UsersOrm, GendersORM
+from models import UsersOrm, ParentsOrm, GendersORM
 from database_engine import Base, async_engine, make_async_session
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload, joinedload
+from sqlalchemy.orm import selectinload
+
 
 async def reset_db():
     async with async_engine.begin() as conn:
@@ -10,54 +11,75 @@ async def reset_db():
         await conn.run_sync(Base.metadata.create_all)
     print("✅ База сброшена")
 
+
 async def gender_run():
     async with make_async_session() as session:
-        gender = [GendersORM(gender='Male'), GendersORM(gender='Female')]
-        session.add_all(gender)
+        genders = [
+            GendersORM(gender="Male"),
+            GendersORM(gender="Female")
+        ]
+        session.add_all(genders)
         await session.commit()
-        # print("✅ Добавлен пол:", gender.gender)
+    print("✅ Полы добавлены")
 
-async def create_users():
+
+async def create_users_with_parents():
     async with make_async_session() as session:
-        # Создаём родителей
-        mother = UsersOrm(name="Мама", age=40, gender_id=2)
-        father = UsersOrm(name="Папа", age=42, gender_id=1)
-        session.add_all([mother, father])
-        await session.flush()  # Получим id до коммита
+        # создаём мать и отца
+        mom = UsersOrm(name="Мама", age=40, gender_id=2)
+        dad = UsersOrm(name="Папа", age=42, gender_id=1)
+        session.add_all([mom, dad])
+        await session.flush()
 
-        # Создаём ребёнка
-        child = UsersOrm(
-            name="Ребёнок",
-            age=10,
-            gender_id=1,
-            mother_id=mother.id,
-            father_id=father.id
-        )
+        # создаём ребёнка
+        child = UsersOrm(name="Ребёнок", age=10, gender_id=1)
         session.add(child)
-        await session.commit()
-        print("✅ Пользователи добавлены")
+        await session.flush()
 
-async def select_data():
+        # создаём запись в parents
+        parents = ParentsOrm(user_id=child.id, mother_id=mom.id, father_id=dad.id)
+        session.add(parents)
+
+        await session.commit()
+    print("✅ Пользователи и родители добавлены")
+
+
+async def show_user_and_parents(user_id: int):
     async with make_async_session() as session:
         stmt = (
             select(UsersOrm)
             .options(
-                selectinload(UsersOrm.children_as_mother),
-                selectinload(UsersOrm.children_as_father)
+                selectinload(UsersOrm.parents).selectinload(ParentsOrm.mother),
+                selectinload(UsersOrm.parents).selectinload(ParentsOrm.father),
             )
-            .where(UsersOrm.name == "Мама")
+            .where(UsersOrm.id == user_id)
         )
         result = await session.execute(stmt)
-        mother = result.scalars().first()
+        user = result.scalars().first()
 
-        print(f"🧑‍🍼 Мама: {mother.name}")
-        for child in mother.children_as_mother:
-            print(f"  → Ребёнок: {child.name}, возраст: {child.age}")
+        if not user:
+            print("Пользователь не найден")
+            return
+
+        print(f"\n👤 Пользователь: {user.name}, возраст: {user.age}")
+        if user.parents:
+            if user.parents.mother:
+                print(f"👩 Мать: {user.parents.mother.name}, возраст: {user.parents.mother.age}")
+            else:
+                print("👩 Мать: не указана")
+
+            if user.parents.father:
+                print(f"👨 Отец: {user.parents.father.name}, возраст: {user.parents.father.age}")
+            else:
+                print("👨 Отец: не указан")
+        else:
+            print("⚠️ У пользователя нет связанной записи в таблице parents")
+
 
 async def main():
-    await reset_db()
-    await gender_run()
-    await create_users()
-    await select_data()
+    # await reset_db()
+    # await gender_run()
+    # await create_users_with_parents()
+    await show_user_and_parents(user_id=1)  # ID ребёнка
 
 asyncio.run(main())
